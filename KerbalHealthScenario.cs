@@ -252,6 +252,14 @@ namespace KerbalHealth
                 UnregisterAppLauncherButton();
         }
 
+        public void LogKerbalEVAValues(Part kerbalEVAPart)
+        {
+            KerbalEVA kerbalEVA = kerbalEVAPart.FindModuleImplementing<KerbalEVA>();
+            if (kerbalEVA != null)
+                Core.Log("Run speed: " + kerbalEVA.runSpeed + ". Strafe speed: " + kerbalEVA.strafeSpeed + ". Swim speed: " + kerbalEVA.swimSpeed + ". Turn rate: " + kerbalEVA.turnRate + ". Walk speed: " + kerbalEVA.walkSpeed);
+            else Core.Log("KerbalEVA not found. " + kerbalEVAPart.name + " contains modules: " + kerbalEVAPart.Modules);
+        }
+
         /// <summary>
         /// Marks the kerbal as being on EVA to apply EVA-only effects
         /// </summary>
@@ -260,8 +268,10 @@ namespace KerbalHealth
         {
             if (!KerbalHealthGeneralSettings.Instance.modEnabled)
                 return;
-            Core.Log(action.to.protoModuleCrew[0].name + " went on EVA from " + action.from.name + ".", Core.LogLevel.Important);
-            Core.KerbalHealthList[action.to.protoModuleCrew[0]].IsOnEVA = true;
+            ProtoCrewMember pcm = action.to.protoModuleCrew[0];
+            Core.Log(pcm.name + " went on EVA from " + action.from.name + ".", Core.LogLevel.Important);
+            LogKerbalEVAValues(action.to);
+            Core.KerbalHealthList[pcm].IsOnEVA = true;
             vesselChanged = true;
             UpdateKerbals(true);
         }
@@ -505,7 +515,8 @@ namespace KerbalHealth
                 if (HighLogic.LoadedSceneIsFlight && vesselChanged)
                 {
                     Core.Log("Vessel has changed or just loaded. Ordering kerbals to train for it in-flight.");
-                    foreach (Vessel v in FlightGlobals.VesselsLoaded) TrainVessel(v);
+                    foreach (Vessel v in FlightGlobals.VesselsLoaded)
+                        TrainVessel(v);
                     vesselChanged = false;
                 }
                 if (checkUntrainedKerbals)
