@@ -110,7 +110,7 @@ namespace KerbalHealth
             return s.Trim();
         }
 
-        public KerbalHealthList() : base(HighLogic.fetch.currentGame.CrewRoster.Count)
+        public KerbalHealthList() : base()//HighLogic.fetch.currentGame.CrewRoster.Count)
         { }
     }
 }

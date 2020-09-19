@@ -8,67 +8,23 @@ namespace KerbalHealth
     public class ModuleKerbalHealth : PartModule, IResourceConsumer
     {
         [KSPField]
-        // Module title displayed in right-click menu (empty string for auto)
-        public string title = "";
-
-        [KSPField(isPersistant = true)]
-        public uint id = 0;
+        List<ModuleConfiguration> configs = new List<ModuleConfiguration>(1);
 
         [KSPField]
-        // How many raw HP per day every affected kerbal gains
-        public float hpChangePerDay = 0;
-
-        [KSPField]
-        // Will increase HP by this % of (MaxHP - HP) per day
-        public float recuperation = 0;
-
-        [KSPField]
-        // Will decrease by this % of (HP - MinHP) per day
-        public float decay = 0;
-
-        [KSPField]
-        // Does the module affect health of only crew in this part or the entire vessel?
-        public bool partCrewOnly = false;
-
-        [KSPField]
-        // Name of factor whose effect is multiplied
-        public string multiplyFactor = "All";
-
-        [KSPField]
-        // How the factor is changed (e.g., 0.5 means factor's effect is halved)
-        public float multiplier = 1;
-
-        [KSPField]
-        // Max crew this module's multiplier applies to without penalty, 0 for unlimited (a.k.a. free multiplier)
-        public int crewCap = 0;
-
-        [KSPField]
-        // Points of living space provided by the part (used to calculate Confinement factor)
-        public double space = 0;
-
-        [KSPField]
-        // Number of halving-thicknesses
-        public float shielding = 0;
-
-        [KSPField]
-        // Radioactive emission, bananas/day
-        public float radioactivity = 0;
-
-        [KSPField]
-        // Determines, which resource is consumed by the module
-        public string resource = "ElectricCharge";
-
-        [KSPField]
-        // Flat EC consumption (units per second)
-        public float resourceConsumption = 0;
-
-        [KSPField]
-        // EC consumption per affected kerbal (units per second)
-        public float resourceConsumptionPerKerbal = 0;
+        ModuleConfiguration defaultConfig;
 
         [KSPField]
         // 0 if no training needed for this part, 1 for standard training complexity
         public float complexity = 0;
+
+        [KSPField(isPersistant = true)]
+        public uint id = 0;
+
+        [KSPField(isPersistant = true, guiName = "Health Module")]
+        string title = "";
+
+        [KSPField(isPersistant = true)]
+        public int configIndex = 0;
 
         [KSPField(isPersistant = true)]
         // If not alwaysActive, this determines if the module is active
@@ -84,13 +40,9 @@ namespace KerbalHealth
 
         double lastUpdated;
 
-        public HealthFactor MultiplyFactor
-        {
-            get => Core.GetHealthFactor(multiplyFactor);
-            set => multiplyFactor = value.Name;
-        }
+        public ModuleConfiguration Configuration => part.partInfo.partPrefab.FindModuleImplementing<ModuleKerbalHealth>().defaultConfig;//configs[configIndex]; // configs.Count > configIndex ? configs[configIndex] : null;
 
-        public bool IsAlwaysActive => (resourceConsumption == 0) && (resourceConsumptionPerKerbal == 0);
+        public bool IsAlwaysActive => (Configuration.resourceConsumption == 0) && (Configuration.resourceConsumptionPerKerbal == 0);
 
         public bool IsModuleActive => IsAlwaysActive || (isActive && (!Core.IsInEditor || KerbalHealthEditorReport.HealthModulesEnabled) && !starving);
 
@@ -102,7 +54,7 @@ namespace KerbalHealth
             get
             {
                 if (Core.IsInEditor)
-                    return partCrewOnly
+                    return Configuration.partCrewOnly
                         ? ShipConstruction.ShipManifest.GetPartCrewManifest(part.craftID).GetPartCrew().Where(pcm => pcm != null).Count()
                         : ShipConstruction.ShipManifest.CrewCount;
                 if (vessel == null || part?.protoModuleCrew == null)
@@ -110,36 +62,69 @@ namespace KerbalHealth
                     Core.Log($"TotalAffectedCrewCount: vessel: {vessel?.vesselName ?? "NULL"}; part: {part?.partName ?? "NULL"}; protoModuleCrew: {(part?.protoModuleCrew ?? new List<ProtoCrewMember>()).Count()} members.", LogLevel.Error);
                     return 0;
                 }
-                return partCrewOnly ? part.protoModuleCrew.Count : vessel.GetCrewCount();
+                return Configuration.partCrewOnly ? part.protoModuleCrew.Count : vessel.GetCrewCount();
             }
         }
 
         /// <summary>
         /// Returns # of kerbals affected by this module, capped by crewCap
         /// </summary>
-        public int CappedAffectedCrewCount => crewCap > 0 ? Math.Min(TotalAffectedCrewCount, crewCap) : TotalAffectedCrewCount;
+        public int CappedAffectedCrewCount => Configuration.crewCap > 0 ? Math.Min(TotalAffectedCrewCount, Configuration.crewCap) : TotalAffectedCrewCount;
 
         public List<PartResourceDefinition> GetConsumedResources() =>
-            (resourceConsumption != 0 || resourceConsumptionPerKerbal != 0)
-            ? new List<PartResourceDefinition>() { ResourceDefinition }
+            (Configuration.resourceConsumption != 0 || Configuration.resourceConsumptionPerKerbal != 0)
+            ? new List<PartResourceDefinition>() { Configuration.ResourceDefinition }
             : new List<PartResourceDefinition>();
 
-        PartResourceDefinition ResourceDefinition
+        public float TotalResourceConsumption => Configuration.resourceConsumption + Configuration.resourceConsumptionPerKerbal * CappedAffectedCrewCount;
+
+        public double RecuperationPower =>
+            Configuration.crewCap > 0 ? Configuration.recuperation * Math.Min((double)Configuration.crewCap / TotalAffectedCrewCount, 1) : Configuration.recuperation;
+
+        public double DecayPower =>
+            Configuration.crewCap > 0 ? Configuration.decay * Math.Min((double)Configuration.crewCap / TotalAffectedCrewCount, 1) : Configuration.decay;
+
+        int numLoaded = 0;
+
+        public override void OnLoad(ConfigNode node)
         {
-            get => PartResourceLibrary.Instance.GetDefinition(resource);
-            set => resource = value?.name;
+            base.OnLoad(node);
+            numLoaded++;
+            if (Core.IsInEditor)
+                Core.Log($"ModuleKerbalHealth.OnLoad with this node: {node}");
+            defaultConfig = new ModuleConfiguration(node);
+            //configs.Clear();
+            //if (node.HasNode(ModuleConfiguration.ConfigNodeName))
+            //    configs.AddRange(node.GetNodes(ModuleConfiguration.ConfigNodeName).Select(n => new ModuleConfiguration(n)));
+            //else
+            //{
+            //    configs.Add(new ModuleConfiguration(node));
+            //    //Core.Log($"Only one configuration found: {configs.Last()}");
+            //}
         }
 
-        public float TotalResourceConsumption => resourceConsumption + resourceConsumptionPerKerbal * CappedAffectedCrewCount;
-
-        public double RecuperationPower => crewCap > 0 ? recuperation * Math.Min((double)crewCap / TotalAffectedCrewCount, 1) : recuperation;
-
-        public double DecayPower => crewCap > 0 ? decay * Math.Min((double)crewCap / TotalAffectedCrewCount, 1) : decay;
+        public override void OnSave(ConfigNode node)
+        {
+            base.OnSave(node);
+            Core.Log("ModuleKerbalHealth.OnSave");
+            //Core.Log($"This module has been loaded {numLoaded} times.");
+            //foreach (ModuleConfiguration config in configs)
+            //{
+            //    Core.Log($"Saving configuration for {config.Title}.");
+            //    node.AddNode(config.ConfigNode);
+            //}
+        }
 
         public override void OnStart(StartState state)
         {
-            Core.Log($"ModuleKerbalHealth.OnStart({state}) for {part.name}");
             base.OnStart(state);
+            Core.Log($"ModuleKerbalHealth.OnStart({state}) for {part.name}");
+            Core.Log($"This module has been loaded {numLoaded} times.");
+            Core.Log($"Module has {configs.Count} configurations:");
+            Core.Log($"Part prefab has {part.partInfo.partPrefab.FindModuleImplementing<ModuleKerbalHealth>().configs.Count} configs.");
+            for (int i = 0; i < configs.Count; i++)
+                Core.Log($"Config {i + 1}. {configs[i]}");
+            Core.Log($"Configuration index is {configIndex}.");
             if ((complexity != 0) && (id == 0))
                 id = part.persistentId;
             if (IsAlwaysActive)
@@ -148,7 +133,7 @@ namespace KerbalHealth
                 Events["OnToggleActive"].guiActive = false;
                 Events["OnToggleActive"].guiActiveEditor = false;
             }
-            if (Core.IsInEditor && (resource == "ElectricCharge"))
+            if (Core.IsInEditor && (Configuration.resource == "ElectricCharge"))
                 ecPerSec = TotalResourceConsumption;
             Fields["ecPerSec"].guiName = Localizer.Format("#KH_Module_ECUsage", Title); // + EC Usage:
             UpdateGUIName();
@@ -160,15 +145,15 @@ namespace KerbalHealth
             if (Core.IsInEditor || !KerbalHealthGeneralSettings.Instance.modEnabled)
                 return;
             double time = Planetarium.GetUniversalTime();
-            if (isActive && ((resourceConsumption != 0) || (resourceConsumptionPerKerbal != 0)))
+            if (isActive && ((Configuration.resourceConsumption != 0) || (Configuration.resourceConsumptionPerKerbal != 0)))
             {
                 ecPerSec = TotalResourceConsumption;
                 double requiredAmount = ecPerSec * (time - lastUpdated), providedAmount;
-                if (resource != "ElectricCharge")
+                if (Configuration.resource != "ElectricCharge")
                     ecPerSec = 0;
-                starving = (providedAmount = vessel.RequestResource(part, ResourceDefinition.id, requiredAmount, false)) * 2 < requiredAmount;
+                starving = (providedAmount = vessel.RequestResource(part, Configuration.ResourceDefinition.id, requiredAmount, false)) * 2 < requiredAmount;
                 if (starving)
-                    Core.Log($"{Title} Module is starving of {resource} ({requiredAmount} needed, {providedAmount} provided).");
+                    Core.Log($"{Title} Module is starving of {Configuration.resource} ({requiredAmount} needed, {providedAmount} provided).");
             }
             else ecPerSec = 0;
             lastUpdated = time;
@@ -191,21 +176,21 @@ namespace KerbalHealth
             if (!KerbalHealthGeneralSettings.Instance.modEnabled)
                 return null;
             ModuleKerbalHealth mkh = proto_part_module as ModuleKerbalHealth;
-            if (mkh.isActive && ((mkh.resourceConsumption != 0) || (mkh.resourceConsumptionPerKerbal != 0)))
+            if (mkh.isActive && ((mkh.Configuration.resourceConsumption != 0) || (mkh.Configuration.resourceConsumptionPerKerbal != 0)))
             {
                 mkh.part = proto_part;
                 mkh.part.vessel = v;
                 mkh.ecPerSec = mkh.TotalResourceConsumption;
                 double requiredAmount = mkh.ecPerSec * elapsed_s;
-                if (mkh.resource != "ElectricCharge")
+                if (mkh.Configuration.resource != "ElectricCharge")
                     mkh.ecPerSec = 0;
-                availableResources.TryGetValue(mkh.resource, out double availableAmount);
+                availableResources.TryGetValue(mkh.Configuration.resource, out double availableAmount);
                 if (availableAmount <= 0)
                 {
-                    Core.Log($"{mkh.Title} Module is starving of {mkh.resource} ({requiredAmount} @ {mkh.ecPerSec} EC/sec needed, {availableAmount} available.");
+                    Core.Log($"{mkh.Title} Module is starving of {mkh.Configuration.resource} ({requiredAmount} @ {mkh.ecPerSec} EC/sec needed, {availableAmount} available.");
                     mkh.starving = true;
                 }
-                resourceChangeRequest.Add(new KeyValuePair<string, double>(mkh.resource, -mkh.ecPerSec));
+                resourceChangeRequest.Add(new KeyValuePair<string, double>(mkh.Configuration.resource, -mkh.ecPerSec));
             }
             else mkh.ecPerSec = 0;
             return mkh.Title.ToLower();
@@ -222,49 +207,18 @@ namespace KerbalHealth
         {
             if (!KerbalHealthGeneralSettings.Instance.modEnabled || !isActive || IsAlwaysActive)
                 return null;
-            resources.Add(new KeyValuePair<string, double>(resource, -ecPerSec));
+            resources.Add(new KeyValuePair<string, double>(Configuration.resource, -ecPerSec));
             return Title.ToLower();
         }
 
-        public string Title
-        {
-            get
-            {
-                if (!string.IsNullOrEmpty(title))
-                    return title;
-                if (recuperation > 0)
-                    return Localizer.Format("#KH_Module_type1");//"R&R"
-                if (decay > 0)
-                    return Localizer.Format("#KH_Module_type2");//"Health Poisoning"
-                switch (multiplyFactor.ToLower())
-                {
-                    case "stress":
-                        return Localizer.Format("#KH_Module_type3");  //"Stress Relief"
-                    case "confinement":
-                        return Localizer.Format("#KH_Module_type4");//"Comforts"
-                    case "loneliness":
-                        return Localizer.Format("#KH_Module_type5");//"Meditation"
-                    case "microgravity":
-                        return (multiplier <= 0.25) ? Localizer.Format("#KH_Module_type6") : Localizer.Format("#KH_Module_type7");//"Paragravity""Exercise Equipment"
-                    case "connected":
-                        return Localizer.Format("#KH_Module_type8");//"TV Set"
-                    case "conditions":
-                        return Localizer.Format("#KH_Module_type9");//"Sick Bay"
-                }
-                if (space > 0)
-                    return Localizer.Format("#KH_Module_type10");//"Living Space"
-                if (shielding > 0)
-                    return Localizer.Format("#KH_Module_type11");//"RadShield"
-                if (radioactivity > 0)
-                    return Localizer.Format("#KH_Module_type12");//"Radiation"
-                return Localizer.Format("#KH_Module_title");//"Health Module"
-            }
-            set => title = value;
-        }
+        public string Title => Configuration.Title;
 
         void UpdateGUIName()
         {
+            Core.Log("UpdateGUIName");
             Events["OnToggleActive"].guiName = Localizer.Format(isActive ? "#KH_Module_Disable" : "#KH_Module_Enable", Title);//"Disable ""Enable "
+            Events["OnSwitchConfiguration"].guiActive = configs.Count > 1;
+            Fields["title"].SetValue(Title, this);
             Fields["ecPerSec"].guiActive = Fields["ecPerSec"].guiActiveEditor = KerbalHealthGeneralSettings.Instance.modEnabled && isActive && ecPerSec != 0;
         }
         
@@ -275,34 +229,30 @@ namespace KerbalHealth
             UpdateGUIName();
         }
 
+        [KSPEvent(name = "OnSwitchConfiguration", guiName = "Switch Health Module", guiActive = false, guiActiveEditor = true)]
+        public void OnSwitchConfiguration()
+        {
+            Core.Log($"ModuleKerbalHealth.OnSwitchConfiguration for {part.partName}");
+            Core.Log($"Old config # {configIndex} / {configs.Count}. Configuration: {Configuration.Title}.");
+            configIndex = (configIndex + 1) % configs.Count;
+            Core.Log($"New config # {configIndex} / {configs.Count}. Configuration: {Configuration.Title}.");
+        }
+
         public override string GetInfo()
         {
+            if (configs.Count == 0)
+                return "";
             string res = "";
-            if (hpChangePerDay != 0)
-                res = Localizer.Format("#KH_Module_info1", hpChangePerDay.ToString("F1"));//"\nHealth points: " +  + "/day"
-            if (recuperation != 0)
-                res += Localizer.Format("#KH_Module_info2", recuperation.ToString("F1"));//"\nRecuperation: " +  + "%/day"
-            if (decay != 0)
-                res += Localizer.Format("#KH_Module_info3", decay.ToString("F1"));//"\nHealth decay: " +  + "%/day"
-            if (multiplier != 1)
-                res += Localizer.Format("#KH_Module_info4", multiplier.ToString("F2"), multiplyFactor);//"\n" +  + "x " + 
-            if (crewCap > 0)
-                res += Localizer.Format("#KH_Module_info5", crewCap);//" for up to " +  + " kerbals
-            if (space != 0)
-                res += Localizer.Format("#KH_Module_info6", space.ToString("F1"));//"\nSpace: " + 
-            if (resourceConsumption != 0)
-                res += Localizer.Format("#KH_Module_info7", ResourceDefinition.abbreviation,resourceConsumption.ToString("F2"));//"\n" +  + ": " +  + "/sec."
-            if (resourceConsumptionPerKerbal != 0)
-                res += Localizer.Format("#KH_Module_info8", ResourceDefinition.abbreviation,resourceConsumptionPerKerbal.ToString("F2"));//"\n" +  + " per Kerbal: " +  + "/sec."
-            if (shielding != 0)
-                res += Localizer.Format("#KH_Module_info9", shielding.ToString("F1"));//"\nShielding rating: " + 
-            if (radioactivity != 0)
-                res += Localizer.Format("#KH_Module_info10", radioactivity.ToString("N0"));//"\nRadioactive emission: " +  + "/day"
+            if (configs.Count == 1)
+                res = $"{configs[0]}\n";
+            else
+            {
+                for (int i = 0; i < configs.Count; i++)
+                    res += $"<b>Configuration #{i + 1}</b>\n{configs[i]}\n\n";
+            }
             if (complexity != 0)
                 res += Localizer.Format("#KH_Module_info11", (complexity * 100).ToString("N0"));// "\nTraining complexity: " + (complexity * 100).ToString("N0") + "%"
-            if (string.IsNullOrEmpty(res))
-                return "";
-            return  Localizer.Format("#KH_Module_typetitle", Title) + res;//"Module type: " + 
+            return res.Trim();
         }
     }
 }

@@ -227,7 +227,7 @@ namespace KerbalHealth
                 s += GetResourceShielding(p);
             }
 
-            s += modules.Where(mkh => mkh.IsModuleActive).Sum(mkh => mkh.shielding);
+            s += modules.Where(mkh => mkh.IsModuleActive).Sum(mkh => mkh.Configuration.shielding);
             return GetExposure(s, part.CrewCapacity);
         }
 
@@ -293,35 +293,35 @@ namespace KerbalHealth
                 return;
             }
 
-            foreach (ModuleKerbalHealth mkh in part.FindModulesImplementing<ModuleKerbalHealth>().Where(m => m.IsModuleActive && (m.partCrewOnly == partCrewModules)))
+            foreach (ModuleKerbalHealth mkh in part.FindModulesImplementing<ModuleKerbalHealth>().Where(m => m.IsModuleActive && (m.Configuration.partCrewOnly == partCrewModules)))
             {
                 Core.Log($"Processing {mkh.Title} Module in {part.name}.");
-                Core.Log($"PartCrewOnly: {mkh.partCrewOnly}; CrewInPart: {partCrewModules}; condition: {(!mkh.partCrewOnly ^ partCrewModules)}");
-                HPChange += mkh.hpChangePerDay;
-                Space += mkh.space;
-                if (mkh.recuperation != 0)
+                Core.Log($"PartCrewOnly: {mkh.Configuration.partCrewOnly}; CrewInPart: {partCrewModules}; condition: {(!mkh.Configuration.partCrewOnly ^ partCrewModules)}");
+                HPChange += mkh.Configuration.hpChangePerDay;
+                Space += mkh.Configuration.space;
+                if (mkh.Configuration.recuperation != 0)
                 {
                     Recuperation += mkh.RecuperationPower;
                     Core.Log($"Module's recuperation power = {mkh.RecuperationPower}");
-                    MaxRecuperaction = Math.Max(MaxRecuperaction, mkh.recuperation);
+                    MaxRecuperaction = Math.Max(MaxRecuperaction, mkh.Configuration.recuperation);
                 }
                 Decay += mkh.DecayPower;
 
                 // Processing factor multiplier
-                if (mkh.multiplier != 1)
+                if (mkh.Configuration.multiplier != 1)
                 {
-                    Core.Log($"Factor multiplier for {mkh.MultiplyFactor}: {mkh.multiplier:P1}.");
-                    FactorMultiplier factorMultiplier = GetFactorMultiplier(mkh.multiplyFactor);
-                    if (mkh.crewCap > 0)
-                        factorMultiplier.AddRestrictedMultiplier(mkh.multiplier, mkh.crewCap, crewCount);
-                    else factorMultiplier.AddFreeMultiplier(mkh.multiplier);
+                    Core.Log($"Factor multiplier for {mkh.Configuration.multiplyFactor}: {mkh.Configuration.multiplier:P1}.");
+                    FactorMultiplier factorMultiplier = GetFactorMultiplier(mkh.Configuration.multiplyFactor);
+                    if (mkh.Configuration.crewCap > 0)
+                        factorMultiplier.AddRestrictedMultiplier(mkh.Configuration.multiplier, mkh.Configuration.crewCap, crewCount);
+                    else factorMultiplier.AddFreeMultiplier(mkh.Configuration.multiplier);
                 }
-                Shielding += mkh.shielding;
-                if (mkh.shielding != 0)
-                    Core.Log($"Shielding of this module is {mkh.shielding}.");
-                Radioactivity += mkh.radioactivity;
-                if (mkh.radioactivity != 0)
-                    Core.Log($"Radioactive emission of this module is {mkh.radioactivity}.");
+                Shielding += mkh.Configuration.shielding;
+                if (mkh.Configuration.shielding != 0)
+                    Core.Log($"Shielding of this module is {mkh.Configuration.shielding}.");
+                Radioactivity += mkh.Configuration.radioactivity;
+                if (mkh.Configuration.radioactivity != 0)
+                    Core.Log($"Radioactive emission of this module is {mkh.Configuration.radioactivity}.");
             }
         }
 

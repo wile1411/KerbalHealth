@@ -328,6 +328,9 @@ namespace KerbalHealth
         public static double GetDouble(this ConfigNode n, string key, double defaultValue = 0) =>
             double.TryParse(n.GetValue(key), out double res) && !double.IsNaN(res) ? res : defaultValue;
 
+        public static float GetFloat(this ConfigNode n, string key, float defaultValue = 0) =>
+            float.TryParse(n.GetValue(key), out float res) && !float.IsNaN(res) ? res : defaultValue;
+
         public static int GetInt(this ConfigNode n, string key, int defaultValue = 0) =>
             int.TryParse(n.GetValue(key), out int res) ? res : defaultValue;
 
